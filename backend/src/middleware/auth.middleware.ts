@@ -5,36 +5,56 @@ import { db, UserRecord } from '../db/store';
 
 export type AuthenticatedRequest = Request;
 
-export const authenticate = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+function readToken(req: Request): string | null {
   const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ')
-    ? authHeader.substring(7)
-    : req.cookies?.token;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  const cookieToken = (req as Request & { cookies?: { token?: string } }).cookies?.token;
+  return cookieToken || null;
+}
 
+export const authenticate = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const token = readToken(req);
   if (!token) {
-    // Default fallback to first active user in dev mode if requested
-    req.user = db.users[0];
-    return next();
+    return res.status(401).json({ message: 'Please sign in to continue.' });
   }
 
   try {
     const decoded = jwt.verify(token, config.jwtSecret) as { id: string };
     const user = db.users.find((u) => u.id === decoded.id);
     if (!user) {
-      return res.status(401).json({ message: 'User session not found' });
+      return res.status(401).json({ message: 'Session expired. Please sign in again.' });
     }
-    req.user = user;
+    if (user.status === 'SUSPENDED') {
+      return res.status(403).json({ message: 'Your account has been suspended. Contact an administrator.' });
+    }
+    req.user = user as Express.User;
     next();
   } catch {
-    // If invalid token, fallback gracefully for testing
-    req.user = db.users[0];
-    next();
+    return res.status(401).json({ message: 'Session expired. Please sign in again.' });
   }
 };
 
+export const optionalAuth = (req: AuthenticatedRequest, _res: Response, next: NextFunction) => {
+  const token = readToken(req);
+  if (!token) return next();
+  try {
+    const decoded = jwt.verify(token, config.jwtSecret) as { id: string };
+    const user = db.users.find((u) => u.id === decoded.id);
+    if (user && user.status !== 'SUSPENDED') {
+      req.user = user as Express.User;
+    }
+  } catch {
+    // ignore invalid token on public routes
+  }
+  next();
+};
+
 export const requireAdmin = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  if (req.user?.role !== 'ADMIN') {
-    return res.status(403).json({ message: 'Forbidden: Admin clearance required' });
+  const role = (req.user as UserRecord | undefined)?.role;
+  if (role !== 'ADMIN' && role !== 'MODERATOR') {
+    return res.status(403).json({ message: 'Admin access required.' });
   }
   next();
 };

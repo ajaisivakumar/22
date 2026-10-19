@@ -1,15 +1,33 @@
 import { Router } from 'express';
 import { db, EventRecord } from '../db/store';
-import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
+import { authenticate, optionalAuth, AuthenticatedRequest } from '../middleware/auth.middleware';
 
 export const eventRouter = Router();
 
-eventRouter.get('/', (req, res) => {
-  const { category } = req.query;
+eventRouter.get('/', optionalAuth, (req: AuthenticatedRequest, res) => {
+  const { category, status } = req.query;
+  const role = req.user?.role;
+  const isStaff = role === 'ADMIN' || role === 'MODERATOR';
   let list = db.events;
+  if (!isStaff) {
+    list = list.filter(
+      (e) =>
+        e.status === 'PUBLISHED' ||
+        e.status === 'APPROVED' ||
+        (!!req.user && e.createdBy === req.user.id)
+    );
+  }
   if (category && category !== 'ALL') {
     list = list.filter((e) => e.category === category);
   }
+  if (status) {
+    list = list.filter((e) => e.status === status);
+  }
+  res.json({ events: list });
+});
+
+eventRouter.get('/my', authenticate, (req: AuthenticatedRequest, res) => {
+  const list = db.events.filter((e) => e.createdBy === req.user?.id);
   res.json({ events: list });
 });
 
@@ -33,9 +51,10 @@ eventRouter.post('/', authenticate, (req: AuthenticatedRequest, res) => {
     eventDate,
     venue,
     registrationLink,
-    brochureUrl: brochureUrl || 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600',
+    brochureUrl: brochureUrl || undefined,
     status: 'PENDING',
     organizerName: req.user?.name || 'Student Submitter',
+    createdBy: req.user?.id,
     createdAt: new Date().toISOString(),
   };
 
@@ -43,13 +62,35 @@ eventRouter.post('/', authenticate, (req: AuthenticatedRequest, res) => {
   res.status(201).json({ event: newEvent });
 });
 
-eventRouter.patch('/:id/status', authenticate, (req, res) => {
-  const { status, notes } = req.body;
+function applyEventPatch(evt: EventRecord, body: Record<string, unknown>) {
+  if (typeof body.title === 'string') evt.title = body.title;
+  if (typeof body.description === 'string') evt.description = body.description;
+  if (typeof body.category === 'string') evt.category = body.category as EventRecord['category'];
+  if (typeof body.eventDate === 'string') evt.eventDate = body.eventDate;
+  if (typeof body.venue === 'string') evt.venue = body.venue;
+  if (typeof body.registrationLink === 'string') evt.registrationLink = body.registrationLink;
+  if (typeof body.brochureUrl === 'string') evt.brochureUrl = body.brochureUrl;
+  if (typeof body.status === 'string') evt.status = body.status as EventRecord['status'];
+  if (typeof body.notes === 'string') evt.moderatorNotes = body.notes;
+  if (typeof body.moderatorNotes === 'string') evt.moderatorNotes = body.moderatorNotes;
+}
+
+eventRouter.patch('/:id', authenticate, (req, res) => {
   const evt = db.events.find((e) => e.id === req.params.id);
   if (!evt) return res.status(404).json({ message: 'Event not found' });
-  if (status) evt.status = status;
-  if (notes) evt.moderatorNotes = notes;
+  applyEventPatch(evt, req.body);
   res.json({ event: evt });
+});
+
+eventRouter.patch('/:id/status', authenticate, (req, res) => {
+  const evt = db.events.find((e) => e.id === req.params.id);
+  if (!evt) return res.status(404).json({ message: 'Event not found' });
+  applyEventPatch(evt, req.body);
+  res.json({ event: evt });
+});
+
+eventRouter.post('/:id/report', authenticate, (_req, res) => {
+  res.json({ message: 'Report received. A moderator will review this event.' });
 });
 
 eventRouter.delete('/:id', authenticate, (req, res) => {

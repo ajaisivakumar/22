@@ -1,81 +1,18 @@
 import passport from 'passport';
-import { Strategy as LocalStrategy } from 'passport-local';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import prisma from './database';
-import { comparePassword, normalizeEmail } from '../utils/crypto';
 import { env } from './env';
+import { db, persist, toPublicUser, addAuditLog } from '../db/store';
 import logger from './logger';
 
-passport.serializeUser((user: any, done) => {
+passport.serializeUser((user: Express.User, done) => {
   done(null, user.id);
 });
 
-passport.deserializeUser(async (id: string, done) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        accountStatus: true,
-        emailVerified: true,
-        displayName: true,
-        anonymousAlias: true,
-      },
-    });
-    done(null, user);
-  } catch (err) {
-    done(err, null);
-  }
+passport.deserializeUser((id: string, done) => {
+  const user = db.users.find((u) => u.id === id);
+  done(null, user ? (toPublicUser(user) as Express.User) : false);
 });
 
-// Local Strategy
-passport.use(
-  new LocalStrategy(
-    {
-      usernameField: 'email',
-      passwordField: 'password',
-    },
-    async (email, password, done) => {
-      try {
-        const normalized = normalizeEmail(email);
-        const user = await prisma.user.findUnique({
-          where: { emailNormalized: normalized },
-        });
-
-        if (!user || !user.passwordHash) {
-          return done(null, false, { message: 'Invalid email or password.' });
-        }
-
-        const isMatch = await comparePassword(password, user.passwordHash);
-        if (!isMatch) {
-          return done(null, false, { message: 'Invalid email or password.' });
-        }
-
-        if (user.accountStatus === 'SUSPENDED') {
-          return done(null, false, { message: 'Account is suspended.' });
-        }
-
-        return done(null, {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          accountStatus: user.accountStatus,
-          emailVerified: user.emailVerified,
-          displayName: user.displayName,
-          anonymousAlias: user.anonymousAlias,
-        });
-      } catch (err) {
-        return done(err);
-      }
-    }
-  )
-);
-
-// Google OAuth Strategy
 if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
   passport.use(
     new GoogleStrategy(
@@ -86,58 +23,45 @@ if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
       },
       async (_accessToken, _refreshToken, profile, done) => {
         try {
-          const email = profile.emails?.[0]?.value;
+          const email = profile.emails?.[0]?.value?.toLowerCase();
           if (!email) {
-            return done(new Error('No email found in Google profile'), undefined);
+            return done(null, false, { message: 'Google did not provide an email address.' });
           }
 
-          const emailNormalized = normalizeEmail(email);
-          const providerId = profile.id;
+          const googleId = profile.id;
+          let user = db.users.find((u) => u.googleId === googleId || u.email.toLowerCase() === email);
 
-          // Check if auth provider exists
-          let authProvider = await prisma.authProvider.findUnique({
-            where: {
-              provider_providerId: {
-                provider: 'google',
-                providerId,
-              },
-            },
-            include: { user: true },
-          });
-
-          if (authProvider) {
-            return done(null, authProvider.user);
+          if (user) {
+            if (user.status === 'SUSPENDED') {
+              return done(null, false, { message: 'Account is suspended.' });
+            }
+            user.googleId = googleId;
+            user.isEmailVerified = true;
+            if (!user.avatarUrl && profile.photos?.[0]?.value) {
+              user.avatarUrl = profile.photos[0].value;
+            }
+            persist();
+            return done(null, toPublicUser(user) as Express.User);
           }
 
-          // Check if user with email already exists
-          let user = await prisma.user.findUnique({
-            where: { emailNormalized },
-          });
-
-          if (!user) {
-            user = await prisma.user.create({
-              data: {
-                name: profile.displayName || profile.name?.givenName || 'Google User',
-                email,
-                emailNormalized,
-                emailVerified: true,
-                accountStatus: 'ACTIVE',
-              },
-            });
-          }
-
-          await prisma.authProvider.create({
-            data: {
-              userId: user.id,
-              provider: 'google',
-              providerId,
-            },
-          });
-
-          return done(null, user);
+          user = {
+            id: 'usr-' + Date.now() + Math.random().toString(36).slice(2, 6),
+            name: profile.displayName || profile.name?.givenName || email.split('@')[0],
+            email,
+            googleId,
+            role: 'STUDENT',
+            avatarUrl: profile.photos?.[0]?.value,
+            isEmailVerified: true,
+            status: 'ACTIVE',
+            createdAt: new Date().toISOString(),
+          };
+          db.users.push(user);
+          addAuditLog('USER_GOOGLE_SIGNUP', user, 'USER', user.id, `Google account linked: ${email}`);
+          persist();
+          return done(null, toPublicUser(user) as Express.User);
         } catch (err) {
           logger.error('Google OAuth error: %o', err);
-          return done(err, undefined);
+          return done(err as Error);
         }
       }
     )

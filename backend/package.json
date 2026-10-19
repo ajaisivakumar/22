@@ -5,7 +5,7 @@
   "description": "Backend API server for Campus Connect",
   "main": "dist/server.js",
   "scripts": {
-    "postinstall": "node node_modules/prisma/build/index.js generate",
+    "postinstall": "node -e \"try{require('child_process').execSync('node node_modules/prisma/build/index.js generate',{stdio:'inherit'})}catch(e){process.exit(0)}\"",
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",

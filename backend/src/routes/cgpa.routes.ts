@@ -5,13 +5,14 @@ import { authenticate, AuthenticatedRequest } from '../middleware/auth.middlewar
 export const cgpaRouter = Router();
 
 cgpaRouter.get('/saved', authenticate, (req: AuthenticatedRequest, res) => {
-  const userId = req.user?.id || 'usr-1';
+  const userId = req.user?.id;
   const list = db.savedCgpa.filter((r) => r.userId === userId);
   res.json({ results: list });
 });
 
 cgpaRouter.post('/saved', authenticate, (req: AuthenticatedRequest, res) => {
-  const userId = req.user?.id || 'usr-1';
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ message: 'Please sign in.' });
   const { semesterNumber, courses, gpa, totalCredits } = req.body;
 
   const existingIdx = db.savedCgpa.findIndex(
@@ -19,7 +20,7 @@ cgpaRouter.post('/saved', authenticate, (req: AuthenticatedRequest, res) => {
   );
 
   const record: SavedCGPARecord = {
-    id: 'sem-' + semesterNumber,
+    id: `sem-${userId}-${semesterNumber}`,
     userId,
     semesterNumber: Number(semesterNumber),
     gpa: Number(gpa),
@@ -39,7 +40,7 @@ cgpaRouter.post('/saved', authenticate, (req: AuthenticatedRequest, res) => {
 });
 
 cgpaRouter.delete('/saved/:id', authenticate, (req: AuthenticatedRequest, res) => {
-  const userId = req.user?.id || 'usr-1';
+  const userId = req.user?.id;
   db.savedCgpa = db.savedCgpa.filter((r) => !(r.id === req.params.id && r.userId === userId));
   res.json({ message: 'Deleted' });
 });

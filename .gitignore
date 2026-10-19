@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.npm/
+
+# Build outputs
+dist/
+build/
+
+# Environment files (NEVER commit these)
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Prisma generated files
+backend/prisma/migrations/
+# Do commit: schema.prisma and seed.ts
+
+# Local persisted in-memory store
+backend/data/
+
+# Uploads (local dev file storage — ephemeral, not committed)
+backend/uploads/
+frontend/public/uploads/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Testing
+coverage/
+.vitest/
+
+# Vercel
+.vercel/
+
+# Temp
+*.tmp
+*.temp

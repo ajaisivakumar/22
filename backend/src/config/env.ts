@@ -8,6 +8,7 @@ export const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   API_BASE_URL: process.env.API_BASE_URL || 'http://localhost:5000',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
+  USE_DATABASE: process.env.USE_DATABASE === 'true',
   DATABASE_URL:
     process.env.DATABASE_URL ||
     'postgresql://postgres:postgres@localhost:5432/college_community?schema=public',
