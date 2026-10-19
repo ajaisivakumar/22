@@ -26,6 +26,9 @@ import healthRoutes from './routes/health.routes';
 
 const app = express();
 
+// Trust Render's proxy (fixes express-rate-limit X-Forwarded-For warning)
+app.set('trust proxy', 1);
+
 // Security HTTP headers
 app.use(
   helmet({
