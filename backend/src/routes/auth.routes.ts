@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import passport from '../config/passport';
 import { db, UserRecord } from '../db/store';
-import { config } from '../config/env';
+import { config, env } from '../config/env';
 import { authenticate, AuthenticatedRequest } from '../middleware/auth.middleware';
 
 export const authRouter = Router();
@@ -107,12 +108,17 @@ authRouter.post('/signup', async (req, res) => {
 // ── POST /google (OAuth redirect — handled by Passport in production) ─────────
 // This stub is for when Google OAuth is not configured.
 // When GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set, use Passport redirect flow.
-authRouter.post('/google', (_req, res) => {
-  return res.status(501).json({
-    message: 'Google OAuth is not configured on this server. Please use email/password login.',
-  });
-});
-
+authRouter.get('/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+// ── GET /google/callback ── Google redirects back here ────────────────────────
+authRouter.get('/google/callback',
+  passport.authenticate('google', { failureRedirect: `${env.FRONTEND_URL}/login?error=google_failed` }),
+  (req, res) => {
+    // Success — redirect to frontend
+    res.redirect(`${env.FRONTEND_URL}/dashboard`);
+  }
+);
 // ── POST /verify-email ────────────────────────────────────────────────────────
 authRouter.post('/verify-email', (req, res) => {
   // TODO: implement token-based email verification
