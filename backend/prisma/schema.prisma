@@ -1,0 +1,470 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // DATABASE_URL  = Neon pooler URL  (add ?pgbouncer=true&connect_timeout=30)
+  // DIRECT_URL    = Neon direct URL  (no pooler — used only for schema migrations)
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum PollStatus {
+  DRAFT
+  ACTIVE
+  CLOSED
+  ARCHIVED
+}
+
+enum EventStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+  EXPIRED
+  REMOVED
+}
+
+enum OpportunityStatus {
+  OPEN
+  TEAM_FORMED
+  CLOSED
+}
+
+enum LostFoundStatus {
+  FOUND
+  HANDED_OVER
+  CLAIMED
+  RETURNED
+  CLOSED
+}
+
+enum ComplaintStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  RETRYING
+  FAILED
+}
+
+model User {
+  id                      String                   @id @default(uuid())
+  name                    String
+  email                   String                   @unique
+  emailNormalized         String                   @unique
+  passwordHash            String?
+  role                    Role                     @default(USER)
+  accountStatus           AccountStatus            @default(PENDING_VERIFICATION)
+  emailVerified           Boolean                  @default(false)
+  displayName             String?
+  anonymousAlias          String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  lastLoginAt             DateTime?
+
+  authProviders           AuthProvider[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  pollVotes               PollVote[]
+  createdPolls            Poll[]                   @relation("PollCreator")
+  opportunities           Opportunity[]
+  conversations           ConversationParticipant[]
+  sentMessages            Message[]
+  events                  Event[]
+  notifications           Notification[]
+  lostFoundItems          LostFoundItem[]
+  labComplaints           LabComplaint[]           @relation("ComplaintModerator")
+  leaderboardEntries      LeaderboardEntry[]
+  cgpaResults             StudentSemesterResult[]
+  examTimetables          ExamTimetable[]
+  auditActorEvents        AuditLog[]               @relation("AuditActor")
+  reports                 Report[]
+}
+
+model AuthProvider {
+  id         String   @id @default(uuid())
+  userId     String
+  provider   String
+  providerId String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Poll {
+  id                String       @id @default(uuid())
+  question          String
+  status            PollStatus   @default(DRAFT)
+  createdById       String
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  publishedAt       DateTime?
+  closesAt          DateTime?
+  resultsVisibility String       @default("AFTER_VOTE")
+
+  createdBy         User         @relation("PollCreator", fields: [createdById], references: [id])
+  options           PollOption[]
+  votes             PollVote[]
+}
+
+model PollOption {
+  id           String     @id @default(uuid())
+  pollId       String
+  optionText   String
+  displayOrder Int
+  poll         Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes        PollVote[]
+}
+
+model PollVote {
+  id       String     @id @default(uuid())
+  pollId   String
+  optionId String
+  userId   String
+  votedAt  DateTime   @default(now())
+
+  poll     Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option   PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+}
+
+model Event {
+  id                   String         @id @default(uuid())
+  creatorId            String
+  title                String
+  category             String
+  description          String
+  brochureUrl          String?
+  brochureKey          String?
+  registrationUrl      String?
+  eventStartDate       DateTime?
+  eventEndDate         DateTime?
+  registrationDeadline DateTime?
+  organizer            String?
+  location             String?
+  format               String?
+  status               EventStatus    @default(PENDING)
+  moderatorId          String?
+  moderatorNote        String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  creator              User           @relation(fields: [creatorId], references: [id])
+  notifications        Notification[]
+  reports              Report[]
+}
+
+model Opportunity {
+  id                String             @id @default(uuid())
+  creatorId         String
+  anonymousAlias    String
+  title             String
+  category          String
+  description       String
+  skillsNeeded      String?
+  teamSize          Int?
+  collaborationMode String?
+  eventName         String?
+  externalUrl       String?
+  deadline          DateTime?
+  additionalInfo    String?
+  lookingFor        String?
+  status            OpportunityStatus  @default(OPEN)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  creator           User               @relation(fields: [creatorId], references: [id])
+  conversations     Conversation[]
+  reports           Report[]
+}
+
+model Conversation {
+  id            String                    @id @default(uuid())
+  opportunityId String
+  status        String                    @default("ACTIVE")
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  lastMessageAt DateTime?
+
+  opportunity   Opportunity               @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  participants  ConversationParticipant[]
+  messages      Message[]
+}
+
+model ConversationParticipant {
+  id             String       @id @default(uuid())
+  conversationId String
+  userId         String
+  joinedAt       DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, userId])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  createdAt      DateTime     @default(now())
+  readAt         DateTime?
+  isDeleted      Boolean      @default(false)
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation(fields: [senderId], references: [id])
+}
+
+model LostFoundItem {
+  id                String          @id @default(uuid())
+  creatorId         String?
+  itemName          String?
+  category          String?
+  imageUrl          String
+  imageKey          String
+  foundLocation     String?
+  currentLocation   String?
+  description       String?
+  itemStatus        LostFoundStatus @default(FOUND)
+  publicationStatus String          @default("PUBLISHED")
+  isHidden          Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  creator           User?           @relation(fields: [creatorId], references: [id])
+  reports           Report[]
+}
+
+model LabComplaint {
+  id                String                     @id @default(uuid())
+  referenceId       String                     @unique
+  floor             String
+  lab               String
+  systemNumber      String
+  description       String
+  status            ComplaintStatus            @default(OPEN)
+  moderatorId       String?
+  resolutionNote    String?
+  telegramStatus    NotificationDeliveryStatus @default(PENDING)
+  emailStatus       NotificationDeliveryStatus @default(PENDING)
+  telegramAttempts  Int                        @default(0)
+  emailAttempts     Int                        @default(0)
+  lastTelegramError String?
+  lastEmailError    String?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  moderator         User?                      @relation("ComplaintModerator", fields: [moderatorId], references: [id])
+}
+
+model CurriculumCourse {
+  id            String                @id @default(uuid())
+  regulation    String
+  programme     String
+  semester      Int
+  courseCode    String?
+  courseName    String
+  credits       Int
+  category      String?
+  courseType    String?
+  electiveGroup String?
+  isElective    Boolean               @default(false)
+  isOptional    Boolean               @default(false)
+  isActive      Boolean               @default(true)
+  createdAt     DateTime              @default(now())
+
+  subjectGrades StudentSubjectGrade[]
+}
+
+model GradeScale {
+  id          String   @id @default(uuid())
+  regulation  String
+  programme   String
+  letterGrade String
+  gradePoint  Float
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@unique([regulation, programme, letterGrade])
+}
+
+model StudentSemesterResult {
+  id                       String                @id @default(uuid())
+  studentId                String
+  semester                 Int
+  curriculumVersion        String
+  resultSource             String                @default("CALCULATOR")
+  completionStatus         String                @default("COMPLETE")
+  totalEligibleCredits     Float
+  totalWeightedPoints      Float
+  calculatedGPA            Float
+  isPublishedToLeaderboard Boolean               @default(false)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+
+  student                  User                  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  subjectGrades            StudentSubjectGrade[]
+  leaderboardEntries       LeaderboardEntry[]
+
+  @@unique([studentId, semester])
+}
+
+model StudentSubjectGrade {
+  id                  String                @id @default(uuid())
+  semesterResultId    String
+  curriculumCourseId  String?
+  subjectNameSnapshot String
+  creditSnapshot      Float
+  letterGrade         String?
+  gradePointSnapshot  Float?
+  completionStatus    String                @default("COMPLETE")
+  includedInCalc      Boolean               @default(true)
+  weightedPoints      Float?
+  selectedElective    String?
+
+  semesterResult      StudentSemesterResult @relation(fields: [semesterResultId], references: [id], onDelete: Cascade)
+  curriculumCourse    CurriculumCourse?     @relation(fields: [curriculumCourseId], references: [id])
+}
+
+model LeaderboardEntry {
+  id                String                 @id @default(uuid())
+  userId            String
+  academicBatch     String
+  semesterMilestone Int
+  validatedCGPA     Float
+  semesterResultId  String?
+  displayMode       String                 @default("ANONYMOUS")
+  publicDisplayName String?
+  consentGiven      Boolean                @default(false)
+  isPublished       Boolean                @default(false)
+  isEligible        Boolean                @default(true)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  semesterResult    StudentSemesterResult? @relation(fields: [semesterResultId], references: [id])
+
+  @@unique([userId, academicBatch, semesterMilestone])
+}
+
+model ExamTimetable {
+  id             String      @id @default(uuid())
+  userId         String
+  semester       Int?
+  academicYear   String?
+  institution    String?
+  branch         String?
+  sourceImageUrl String?
+  status         String      @default("CONFIRMED")
+  warnings       String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exams          ExamEntry[]
+}
+
+model ExamEntry {
+  id            String        @id @default(uuid())
+  timetableId   String
+  subjectCode   String?
+  subjectName   String
+  examDate      DateTime
+  session       String?
+  daysRemaining Int?
+  confidence    Float?
+  warnings      String?
+  createdAt     DateTime      @default(now())
+
+  timetable     ExamTimetable @relation(fields: [timetableId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String
+  type        String
+  title       String
+  body        String?
+  relatedId   String?
+  relatedType String?
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event       Event?    @relation(fields: [relatedId], references: [id])
+}
+
+model Report {
+  id              String         @id @default(uuid())
+  reporterId      String
+  entityType      String
+  entityId        String
+  reason          String
+  status          String         @default("PENDING")
+  moderatorAction String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  reporter        User           @relation(fields: [reporterId], references: [id])
+  opportunity     Opportunity?   @relation(fields: [entityId], references: [id], map: "Report_opportunity_entityId_fkey")
+  event           Event?         @relation(fields: [entityId], references: [id], map: "Report_event_entityId_fkey")
+  lostFoundItem   LostFoundItem? @relation(fields: [entityId], references: [id], map: "Report_lostfound_entityId_fkey")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  eventType   String
+  actorId     String?
+  actorRole   String?
+  targetType  String?
+  targetId    String?
+  outcome     String
+  description String?
+  requestId   String?
+  createdAt   DateTime @default(now())
+
+  actor       User?    @relation("AuditActor", fields: [actorId], references: [id])
+}
