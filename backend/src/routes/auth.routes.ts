@@ -112,11 +112,54 @@ authRouter.get('/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
 // ── GET /google/callback ── Google redirects back here ────────────────────────
-authRouter.get('/google/callback',
-  passport.authenticate('google', { failureRedirect: `${env.FRONTEND_URL}/login?error=google_failed` }),
+// ── GET /google/callback ── Google redirects back here ────────────────────────
+authRouter.get(
+  '/google/callback',
+  passport.authenticate('google', {
+    failureRedirect: `${env.FRONTEND_URL}/login?error=google_failed`,
+  }),
   (req, res) => {
-    // Success — redirect to frontend
-    res.redirect(`${env.FRONTEND_URL}/dashboard`);
+    const user = req.user as any;
+
+    if (!user) {
+      return res.redirect(`${env.FRONTEND_URL}/login?error=no_user`);
+    }
+
+    // Sync user into db.users if not present (so auth.middleware finds them)
+    let memoryUser = db.users.find(
+      (u) => u.email.toLowerCase() === user.email.toLowerCase()
+    );
+    if (!memoryUser) {
+      memoryUser = {
+        id: user.id,
+        name: user.name || 'User',
+        email: user.email,
+        role: (user.role as any) || 'STUDENT',
+        department: 'Engineering',
+        isEmailVerified: true,
+        status: 'ACTIVE',
+        createdAt: new Date().toISOString(),
+      };
+      db.users.push(memoryUser);
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: memoryUser.id, email: memoryUser.email, role: memoryUser.role },
+      config.jwtSecret,
+      { expiresIn: '7d' }
+    );
+
+    // Set cookie
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: env.COOKIE_SECURE || env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    // Redirect to home page '/' (NOT /dashboard)
+    res.redirect(`${env.FRONTEND_URL}/`);
   }
 );
 // ── POST /verify-email ────────────────────────────────────────────────────────
