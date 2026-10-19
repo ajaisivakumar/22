@@ -112,7 +112,6 @@ authRouter.get('/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
 // ── GET /google/callback ── Google redirects back here ────────────────────────
-// ── GET /google/callback ── Google redirects back here ────────────────────────
 authRouter.get(
   '/google/callback',
   passport.authenticate('google', {
@@ -125,7 +124,7 @@ authRouter.get(
       return res.redirect(`${env.FRONTEND_URL}/login?error=no_user`);
     }
 
-    // Sync user into db.users if not present (so auth.middleware finds them)
+    // Sync user into in-memory store so auth middleware can resolve them
     let memoryUser = db.users.find(
       (u) => u.email.toLowerCase() === user.email.toLowerCase()
     );
@@ -150,16 +149,8 @@ authRouter.get(
       { expiresIn: '7d' }
     );
 
-    // Set cookie
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: env.COOKIE_SECURE || env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    // Redirect to home page '/' (NOT /dashboard)
-    res.redirect(`${env.FRONTEND_URL}/`);
+    // Redirect to frontend login with token so frontend saves it to localStorage
+    res.redirect(`${env.FRONTEND_URL}/login?token=${token}`);
   }
 );
 // ── POST /verify-email ────────────────────────────────────────────────────────
