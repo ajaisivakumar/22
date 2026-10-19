@@ -7,7 +7,7 @@
   "scripts": {
     "postinstall": "node node_modules/prisma/build/index.js generate",
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc --project tsconfig.json",
     "start": "node dist/server.js",
     "prisma:push": "node node_modules/prisma/build/index.js db push --skip-generate",
     "prisma:migrate": "node node_modules/prisma/build/index.js migrate dev",
